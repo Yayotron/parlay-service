@@ -1,59 +1,113 @@
 package me.victor.parlay.infrastructure.api
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardOpenOption
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 @Component
 class ApiFootballClient(
     @Value("\${api-football.base-url}") private val baseUrl: String,
     @Value("\${api-football.api-key}") private val apiKey: String,
     @Value("\${api-football.league-id}") private val leagueId: Int,
-    @Value("\${api-football.season}") private val season: Int
+    @Value("\${api-football.season}") private val season: Int,
+    private val objectMapper: ObjectMapper
 ) {
     private val webClient = WebClient.builder()
         .baseUrl(baseUrl)
         .defaultHeader("x-apisports-key", apiKey)
         .build()
+    private val responseDirectory: Path = Paths.get("src/main/resources/data/responses")
+    private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmm")
 
     fun getFixtures(date: String): Mono<FixturesResponse> {
-        return webClient.get()
-            .uri { it.path("/fixtures")
+        val identifier = "getFixturesDate${sanitizeSegment(date)}"
+        return fetchAndStoreResponse(
+            identifier,
+            { it.path("/fixtures")
                 .queryParam("league", leagueId)
                 .queryParam("season", season)
                 .queryParam("date", date)
                 .build()
-            }
-            .retrieve()
-            .bodyToMono(FixturesResponse::class.java)
+            },
+            FixturesResponse::class.java
+        )
     }
 
     fun getPredictions(fixtureId: Int): Mono<PredictionsResponse> {
-        return webClient.get()
-            .uri("/predictions") { it.queryParam("fixture", fixtureId).build() }
-            .retrieve()
-            .bodyToMono(PredictionsResponse::class.java)
+        val identifier = "getPredictionsFixture$fixtureId"
+        return fetchAndStoreResponse(
+            identifier,
+            { it.path("/predictions").queryParam("fixture", fixtureId).build() },
+            PredictionsResponse::class.java
+        )
     }
 
     fun getTeamStatistics(teamId: Int, date: String): Mono<TeamStatsResponse> {
-        return webClient.get()
-            .uri { it.path("/teams/statistics")
+        val identifier = "getTeamStatisticsTeam${teamId}Date${sanitizeSegment(date)}"
+        return fetchAndStoreResponse(
+            identifier,
+            { it.path("/teams/statistics")
                 .queryParam("league", leagueId)
                 .queryParam("season", season)
                 .queryParam("team", teamId)
                 .queryParam("date", date)
                 .build()
-            }
-            .retrieve()
-            .bodyToMono(TeamStatsResponse::class.java)
+            },
+            TeamStatsResponse::class.java
+        )
     }
 
     fun getOdds(fixtureId: Int): Mono<OddsResponse> {
+        val identifier = "getOddsFixture$fixtureId"
+        return fetchAndStoreResponse(
+            identifier,
+            { it.path("/odds").queryParam("fixture", fixtureId).build() },
+            OddsResponse::class.java
+        )
+    }
+
+    private fun <T> fetchAndStoreResponse(
+        identifier: String,
+        uriBuilder: (org.springframework.web.util.UriBuilder) -> java.net.URI,
+        responseType: Class<T>
+    ): Mono<T> {
         return webClient.get()
-            .uri("/odds") { it.queryParam("fixture", fixtureId).build() }
+            .uri(uriBuilder)
             .retrieve()
-            .bodyToMono(OddsResponse::class.java)
+            .bodyToMono(String::class.java)
+            .flatMap { body ->
+                saveResponse(identifier, body).thenReturn(objectMapper.readValue(body, responseType))
+            }
+    }
+
+    private fun saveResponse(identifier: String, body: String): Mono<Void> {
+        val timestamp = LocalDateTime.now().format(timestampFormatter)
+        val filename = "${sanitizeSegment(identifier)}$timestamp"
+        val filePath = responseDirectory.resolve(filename)
+        return Mono.fromCallable {
+            Files.createDirectories(responseDirectory)
+            Files.writeString(
+                filePath,
+                body,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+            )
+        }
+            .subscribeOn(Schedulers.boundedElastic())
+            .then()
+    }
+
+    private fun sanitizeSegment(value: String): String {
+        return value.replace(Regex("[^A-Za-z0-9]"), "")
     }
 }
 
@@ -89,5 +143,3 @@ data class OddsItem(val bookmakers: List<Bookmaker>)
 data class Bookmaker(val id: Int, val name: String, val bets: List<Bet>)
 data class Bet(val id: Int, val name: String, val values: List<OddValue>)
 data class OddValue(val value: String, val odd: String)
-
-
