@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: me.victor.parlay.service.AnalysisEngineTest
--------------------------------------------------------------------------------
-Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.145 s - in me.victor.parlay.service.AnalysisEngineTest
