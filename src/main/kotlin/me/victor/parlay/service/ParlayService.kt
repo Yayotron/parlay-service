@@ -25,21 +25,26 @@ class ParlayService(
                 Mono.zip(
                     apiClient.getPredictions(fixtureId),
                     apiClient.getTeamStatistics(homeId, date),
-                    apiClient.getTeamStatistics(awayId, date)
+                    apiClient.getTeamStatistics(awayId, date),
+                    apiClient.getOdds(fixtureId).onErrorReturn(me.victor.parlay.infrastructure.api.OddsResponse(emptyList()))
                 ).map { tuple ->
                     val matchName = "${item.teams.home.name} vs ${item.teams.away.name}"
-                    analysisEngine.analyzeMatch(matchName, tuple.t1.response.first(), tuple.t2.response, tuple.t3.response)
+                    analysisEngine.analyzeMatch(
+                        matchName, 
+                        tuple.t1.response.first(), 
+                        tuple.t2.response, 
+                        tuple.t3.response,
+                        tuple.t4.response.firstOrNull()
+                    )
                 }
             }
             .collectList()
             .map { allOptions ->
                 val flattenedOptions = allOptions.flatten()
                 
-                // 1. Low Risk Parlay: Highest confidence options, combined prob > 60%
                 val lowRiskOptions = selectOptionsForParlay(flattenedOptions, 60, 3)
                 val lowRiskProb = analysisEngine.calculateProbability(lowRiskOptions)
                 
-                // 2. High Risk Parlay: Lower confidence, combined prob >= 30%
                 val highRiskOptions = selectOptionsForParlay(flattenedOptions, 30, 4)
                 val highRiskProb = analysisEngine.calculateProbability(highRiskOptions)
 
@@ -59,7 +64,6 @@ class ParlayService(
     }
 
     private fun selectOptionsForParlay(options: List<BettingOption>, targetProb: Int, count: Int): List<BettingOption> {
-        // Sort by confidence descending for low risk, or find a mix for high risk
         val sorted = options.sortedByDescending { it.confidence }
         val selected = mutableListOf<BettingOption>()
         
@@ -70,8 +74,6 @@ class ParlayService(
                 selected.add(option)
             }
         }
-        
-        // If we can't reach target with highest, just take the top ones
         return if (selected.isEmpty()) sorted.take(count) else selected
     }
 }

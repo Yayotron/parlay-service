@@ -48,6 +48,13 @@ class ApiFootballClient(
             .retrieve()
             .bodyToMono(TeamStatsResponse::class.java)
     }
+
+    fun getOdds(fixtureId: Int): Mono<OddsResponse> {
+        return webClient.get()
+            .uri("/odds") { it.queryParam("fixture", fixtureId).build() }
+            .retrieve()
+            .bodyToMono(OddsResponse::class.java)
+    }
 }
 
 data class FixturesResponse(val response: List<FixtureItem>)
@@ -76,4 +83,11 @@ data class TeamFixtures(val played: StatValue, val wins: StatValue, val draws: S
 data class TeamGoalsStats(@com.fasterxml.jackson.annotation.JsonProperty("for") val forGoals: GoalDetails, val against: GoalDetails)
 data class GoalDetails(val total: StatValue, val average: StatValue)
 data class StatValue(val home: Int?, val away: Int?, val total: Int?, val home_avg: String? = null, val away_avg: String? = null, val total_avg: String? = null)
+
+data class OddsResponse(val response: List<OddsItem>)
+data class OddsItem(val bookmakers: List<Bookmaker>)
+data class Bookmaker(val id: Int, val name: String, val bets: List<Bet>)
+data class Bet(val id: Int, val name: String, val values: List<OddValue>)
+data class OddValue(val value: String, val odd: String)
+
 
